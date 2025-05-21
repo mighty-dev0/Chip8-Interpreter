@@ -20,6 +20,7 @@ void chip8::Initialize() {
     memset(gfx, 0, sizeof(gfx));
     memset(stack, 0, sizeof(stack));
     memset(key, 0, sizeof(key));
+    draw_flag = true;
 
     // Load fontset from 0-80.
     unsigned char chip8_fontset[80] = {
@@ -110,6 +111,7 @@ void chip8::EmulateCycle() {
             switch (opcode & 0x000F) {
                 case 0x0000: // 00E0
                     memset(gfx, 0, sizeof(gfx));
+                    draw_flag = true;
                 break;
                 
                 case 0x000E: // 00EE
@@ -163,14 +165,17 @@ void chip8::EmulateCycle() {
 
                 case 0x0001: // 8XY1
                     V[(opcode & 0x0F00) >> 8] |= V[(opcode & 0x00F0) >> 4];
+                    V[0xF] = 0; // Reset VF
                 break;
 
                 case 0x0002: // 8XY2
                     V[(opcode & 0x0F00) >> 8] &= V[(opcode & 0x00F0) >> 4];
+                    V[0xF] = 0; // Reset VF
                 break;
 
                 case 0x0003: //8XY3
                     V[(opcode & 0x0F00) >> 8] ^= V[(opcode & 0x00F0) >> 4];
+                    V[0xF] = 0; // Reset VF
                 break;
 
                 case 0x0004: // 8XY4
@@ -182,7 +187,7 @@ void chip8::EmulateCycle() {
                 break;
 
                 case 0x0005: // 8XY5
-                    if (V[(opcode & 0x0F00) >> 8] >= (0xFF - V[(opcode & 0x00F0) >> 4]))
+                    if (V[(opcode & 0x0F00) >> 8] >= V[(opcode & 0x00F0) >> 4])
                         V[0xF] = 1;
                     else
                         V[0xF] = 0;
@@ -190,8 +195,8 @@ void chip8::EmulateCycle() {
                 break;
 
                 case 0x0006: // 8XY6
-                    V[0xF] = (V[(opcode & 0x0F00) >> 8] & 0x1);
-                    V[(opcode & 0x0F00) >> 8] >>= 1;
+                    V[(opcode & 0x0F00) >> 8] = V[(opcode & 0x00F0) >> 4] >> 1;
+                    V[0xF] = (V[((opcode & 0x0F00) >> 8)] & 1);
                 break;
 
                 case 0x0007: // 8XY7
@@ -203,8 +208,8 @@ void chip8::EmulateCycle() {
                 break;
 
                 case 0x000E: // 8XYE
-                    V[0xF] = ((V[(opcode & 0x0F00) >> 8]) & 0x80) >> 7;
-                    V[(opcode & 0x0F00) >> 8] <<= 1;
+                    V[(opcode & 0x0F00) >> 8] = V[(opcode & 0x00F0) >> 4] << 1;
+                    V[0xF] = (V[(opcode & 0x0F00) >> 8] >> 7);
                 break;
 
                 default:
@@ -230,31 +235,34 @@ void chip8::EmulateCycle() {
         break;
 
         case 0xD000: {// DXYN
-            unsigned short x = V[(opcode & 0x0F00) >> 8] % 64;
-            unsigned short y = V[(opcode & 0x00F0) >> 4] % 32;
-            unsigned short height = opcode & 0x000F;
-            unsigned short pixel;
-
+            uint8_t x = V[(opcode & 0x0F00) >> 8];
+            uint8_t y = V[(opcode & 0x00F0) >> 4];
+            uint8_t height = opcode & 0x000F;
+            uint8_t pixel;
             V[0xF] = 0;
-            for (int yline = 0; yline < height; yline++) {
-                // Make sure I does not go out of bounds
-                if (I + yline >= 4096)
-                    continue;
 
+            for (int yline = 0; yline < height; yline++) {
                 pixel = memory[I + yline];
                 for (int xline = 0; xline < 8; xline++) {
-                    if ((pixel & (0x80 >> xline)) != 0) {
-                        int xpos = (x + xline) % 64;
-                        int ypos = (y + yline) % 32;
-                        int index = xpos + (ypos * 64);
+                    if ((pixel & (0x80 >> xline))) {
+                        // Wrap coordinates using modulo.
+                        uint8_t x_pixel = (x + xline) % 64;
+                        uint8_t y_pixel = (y + yline) % 32;
 
-                        if (gfx[index] == 1)
+                        // Calculate position with row offset.
+                        uint16_t pos = x_pixel + (y_pixel * 64);
+
+                        // Check collision before modifying.
+                        if (gfx[pos] == 1)
                             V[0xF] = 1;
-                        gfx[index] ^= 1;
+
+                        // XOR the pixel.
+                        gfx[pos] ^= 1;
                     }
                 }
             }
         }
+        draw_flag = true;
         break;
 
         case 0xE000:
@@ -290,7 +298,7 @@ void chip8::EmulateCycle() {
                         }
                     }
                     if (!key_pressed)
-                        pc -= 2; // Retry and look for key again.
+                        pc -= 2; // If no key is pressed, do this instruction
                 }
                 break;
 
@@ -317,13 +325,15 @@ void chip8::EmulateCycle() {
                 break;
 
                 case 0x0055: // FX55
-                    for (int i = 0; i <= ((opcode & 0x0F00) >> 8); ++i)
+                    for (unsigned char i = 0; i <= ((opcode & 0x0F00) >> 8); ++i)
                         memory[I + i] = V[i];
+                    I += ((opcode & 0x0F00) >> 8) + 1;
                 break;
 
                 case 0x0065: // FX65
-                    for (int i = 0; i <= ((opcode & 0x0F00) >> 8); ++i)
+                    for (unsigned char i = 0; i <= ((opcode & 0x0F00) >> 8); ++i)
                         V[i] = memory[I + i];
+                    I += ((opcode & 0x0F00) >> 8) + 1;
                 break;
 
                 default:
@@ -355,6 +365,10 @@ void chip8::UpdateTimers() {
             printf("Beep!");  //TODO Implement proper sound.
         --sound_timer;
     }
+}
+
+bool chip8::GetDrawFlag() {
+    return draw_flag;
 }
 
 // Destructor

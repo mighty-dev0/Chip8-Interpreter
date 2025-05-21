@@ -15,6 +15,8 @@ public:
     void UpdateTimers();
     unsigned char key[16]; // Hexadecimal keypad.
     unsigned char GetMemory(int address) { return memory[address]; }
+    bool GetDrawFlag();
+    void SetDrawFlag(bool new_value) { draw_flag = new_value; }
     ~chip8(); // Destructor
 
 private:
@@ -28,6 +30,7 @@ private:
     unsigned char sound_timer; // Used for sound effects, it's value can only be set.
     unsigned short stack[16]; // Used to store return addresses when subroutines are called.
     unsigned short sp; // Stack pointer.
+    bool draw_flag;
 };
 
 #endif

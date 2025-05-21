@@ -50,7 +50,10 @@ int main(int argc, char **argv) {
             my_chip8.EmulateCycle();
 
             // Update the screen.
-            my_platform.Update(my_chip8.GetGFX());
+            if (my_chip8.GetDrawFlag()) {
+                my_platform.Update(my_chip8.GetGFX());
+                my_chip8.SetDrawFlag(false);
+            }
         }
 
         // Update timers at 60Hz.
